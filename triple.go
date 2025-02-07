@@ -1,15 +1,23 @@
-package llvmtriple
+package minillvmtargetparser
 
-import "github.com/jcbhmr/go-llvmtriple/internal/support"
+import (
+	"strings"
+
+	"github.com/jcbhmr/go-minillvmtargetparser/v19/support"
+	"golang.org/x/sys/cpu"
+)
 
 // Triple - Helper class for working with autoconf configuration names. For
 // historical reasons, we also call these 'triples' (they used to contain
 // exactly three fields).
 //
 // Configuration names are strings in the canonical form:
-//   ARCHITECTURE-VENDOR-OPERATING_SYSTEM
+//
+//	ARCHITECTURE-VENDOR-OPERATING_SYSTEM
+//
 // or
-//   ARCHITECTURE-VENDOR-OPERATING_SYSTEM-ENVIRONMENT
+//
+//	ARCHITECTURE-VENDOR-OPERATING_SYSTEM-ENVIRONMENT
 //
 // This class is used for clients which want to support arbitrary
 // configuration names, but also want to implement certain special
@@ -328,19 +336,95 @@ const (
 // Default constructor is the same as an empty string and leaves all
 // triple fields unknown.
 func NewTriple() *Triple {
-	panic("not implemented")
+	return &Triple{}
 }
 
+// Construct a triple from the string representation provided.
+//
+// This stores the string representation and parses the various pieces into
+// enum members.
 func NewTriple2(str string) *Triple {
-	panic("not implemented")
+	t := &Triple{
+		data: str,
+		arch: TripleUnknownArch,
+		subArch: TripleNoSubArch,
+		vendor: TripleUnknownVendor,
+		os: TripleUnknownOS,
+		environment: TripleUnknownEnvironment,
+		objectFormat: TripleUnknownObjectFormat,
+	}
+	components := strings.SplitN(str, "-", 3)
+	if len(components) > 0 {
+		t.arch = parseArch(components[0])
+		t.subArch = parseSubArch(components[0])
+		if len(components) > 1 {
+			t.vendor = parseVendor(components[1])
+			if len(components) > 2 {
+				t.os = parseOS(components[2])
+				if len(components) > 3 {
+					t.environment = parseEnvironment(components[3])
+				}
+			}
+		} else {
+			if strings.HasPrefix(components[0], "mipsn32") {
+				t.environment = TripleGNUABIN32
+			} else if strings.HasPrefix(components[0], "mips64") {
+				t.environment = TripleGNUABI64
+			} else if strings.HasPrefix(components[0], "mipsisa64") {
+				t.environment = TripleGNUABI64
+			} else if strings.HasPrefix(components[0], "mipsisa32") {
+				t.environment = TripleGNU
+			} else if components[0] == "mips" || components[0] == "mipsel" || components[0] == "mipsr6" || components[0] == "mipsr6el" {
+				t.environment = TripleGNU
+			} else {
+				t.environment = TripleUnknownEnvironment
+			}
+		}
+	}
+	if t.objectFormat == TripleUnknownObjectFormat {
+		t.objectFormat = defaultFormat(t)
+	}
+	return t
 }
 
+// Construct a triple from string representations of the architecture,
+// vendor, and OS.
+//
+// This joins each argument into a canonical string representation and parses
+// them into enum members. It leaves the environment unknown and omits it from
+// the string representation.
 func NewTriple3(archStr string, vendorStr string, osStr string) *Triple {
-	panic("not implemented")
+	t := &Triple{
+		data: archStr + "-" + vendorStr + "-" + osStr,
+		arch: parseArch(archStr),
+		subArch: parseSubArch(archStr),
+		vendor: parseVendor(vendorStr),
+		os: parseOS(osStr),
+		objectFormat: TripleUnknownObjectFormat,
+	}
+	t.objectFormat = defaultFormat(t)
+	return t
 }
 
+// Construct a triple from string representations of the architecture,
+// vendor, OS, and environment.
+//
+// This joins each argument into a canonical string representation and parses
+// them into enum members.
 func NewTriple4(archStr string, vendorStr string, osStr string, environmentStr string) *Triple {
-	panic("not implemented")
+	t := &Triple{
+		data: archStr + "-" + vendorStr + "-" + osStr + "-" + environmentStr,
+		arch: parseArch(archStr),
+		subArch: parseSubArch(archStr),
+		vendor: parseVendor(vendorStr),
+		os: parseOS(osStr),
+		environment: parseEnvironment(environmentStr),
+		objectFormat: parseFormar(environmentStr),
+	}
+	if t.objectFormat == TripleUnknownObjectFormat {
+		t.objectFormat = defaultFormat(t)
+	}
+	return t
 }
 
 func (t *Triple) Equal(other *Triple) bool {
@@ -1235,7 +1319,7 @@ func (t *Triple) SetOSAndEnvironmentName(str string) {
 // This can be used to move across "families" of architectures where useful.
 //
 // Returns: A new triple with a 32-bit architecture or an unknown
-//          architecture if no such variant can be found.
+// architecture if no such variant can be found.
 func (t *Triple) X32BitArchVariant() *Triple {
 	panic("not implemented")
 }
@@ -1245,7 +1329,7 @@ func (t *Triple) X32BitArchVariant() *Triple {
 // This can be used to move across "families" of architectures where useful.
 //
 // Returns: A new triple with a 64-bit architecture or an unknown
-//          architecture if no such variant can be found.
+// architecture if no such variant can be found.
 func (t *Triple) X64BitArchVariant() *Triple {
 	panic("not implemented")
 }
@@ -1255,7 +1339,7 @@ func (t *Triple) X64BitArchVariant() *Triple {
 // This can be used to move across "families" of architectures where useful.
 //
 // Returns: A new triple with a big endian architecture or an unknown
-//          architecture if no such variant can be found.
+// architecture if no such variant can be found.
 func (t *Triple) BigEndianArchVariant() *Triple {
 	panic("not implemented")
 }
@@ -1265,7 +1349,7 @@ func (t *Triple) BigEndianArchVariant() *Triple {
 // This can be used to move across "families" of architectures where useful.
 //
 // Returns: A new triple with a little endian architecture or an unknown
-//          architecture if no such variant can be found.
+// architecture if no such variant can be found.
 func (t *Triple) LittleEndianArchVariant() *Triple {
 	panic("not implemented")
 }
@@ -1297,7 +1381,133 @@ func (t *Triple) MinimumSupportedOSVersion() support.VersionTuple {
 
 // Get the canonical name for the kind architecture.
 func TripleArchTypeName(kind TripleArchType) string {
-	panic("not implemented")
+	switch kind {
+	case TripleUnknownArch:
+		return "unknown"
+	case TripleAarch64:
+		return "aarch64"
+	case TripleAarch64_32:
+		return "aarch64_32"
+	case TripleAarch64_be:
+		return "aarch64_be"
+	case TripleAmdgcn:
+		return "amdgcn"
+	case TripleAmdil64:
+		return "amdil64"
+	case TripleAmdil:
+		return "amdil"
+	case TripleArc:
+		return "arc"
+	case TripleArm:
+		return "arm"
+	case TripleArmeb:
+		return "armeb"
+	case TripleAvr:
+		return "avr"
+	case TripleBpfeb:
+		return "bpfeb"
+	case TripleBpfel:
+		return "bpfel"
+	case TripleCsky:
+		return "csky"
+	case TripleDxil:
+		return "dxil"
+	case TripleHexagon:
+		return "hexagon"
+	case TripleHsail64:
+		return "hsail64"
+	case TripleHsail:
+		return "hsail"
+	case TripleKalimba:
+		return "kalimba"
+	case TripleLanai:
+		return "lanai"
+	case TripleLe32:
+		return "le32"
+	case TripleLe64:
+		return "le64"
+	case TripleLoongarch32:
+		return "loongarch32"
+	case TripleLoongarch64:
+		return "loongarch64"
+	case TripleM68k:
+		return "m68k"
+	case TripleMips64:
+		return "mips64"
+	case TripleMips64el:
+		return "mips64el"
+	case TripleMips:
+		return "mips"
+	case TripleMipsel:
+		return "mipsel"
+	case TripleMsp430:
+		return "msp430"
+	case TripleNvptx64:
+		return "nvptx64"
+	case TripleNvptx:
+		return "nvptx"
+	case TriplePpc64:
+		return "powerpc64"
+	case TriplePpc64le:
+		return "powerpc64le"
+	case TriplePpc:
+		return "powerpc"
+	case TriplePpcle:
+		return "powerpcle"
+	case TripleR600:
+		return "r600"
+	case TripleRenderscript32:
+		return "renderscript32"
+	case TripleRenderscript64:
+		return "renderscript64"
+	case TripleRiscv32:
+		return "riscv32"
+	case TripleRiscv64:
+		return "riscv64"
+	case TripleShave:
+		return "shave"
+	case TripleSparc:
+		return "sparc"
+	case TripleSparcel:
+		return "sparcel"
+	case TripleSparcv9:
+		return "sparcv9"
+	case TripleSpir64:
+		return "spir64"
+	case TripleSpir:
+		return "spir"
+	case TripleSpirv:
+		return "spirv"
+	case TripleSpirv32:
+		return "spirv32"
+	case TripleSpirv64:
+		return "spirv64"
+	case TripleSystemz:
+		return "s390x"
+	case TripleTce:
+		return "tce"
+	case TripleTcele:
+		return "tcele"
+	case TripleThumb:
+		return "thumb"
+	case TripleThumbeb:
+		return "thumbeb"
+	case TripleVe:
+		return "ve"
+	case TripleWasm32:
+		return "wasm32"
+	case TripleWasm64:
+		return "wasm64"
+	case TripleX86:
+		return "i386"
+	case TripleX86_64:
+		return "x86_64"
+	case TripleXcore:
+		return "xcore"
+	case TripleXtensa:
+		return "xtensa"
+	}
+	panic("unreachable: invalid TripleArchType")
 }
 
 // Get the architecture name based on kind and subArch.
@@ -1309,7 +1519,53 @@ func TripleArchName(kind TripleArchType, subArch *TripleSubArchType) string {
 		subArch2 = TripleNoSubArch
 	}
 	_ = subArch2
-	panic("not implemented")
+	switch kind {
+	case TripleMips:
+		if subArch2 == TripleMipsSubArch_r6 {
+			return "mipsisa32r6"
+		}
+	case TripleMipsel:
+		if subArch2 == TripleMipsSubArch_r6 {
+			return "mipsisa32r6el"
+		}
+	case TripleMips64:
+		if subArch2 == TripleMipsSubArch_r6 {
+			return "mipsisa64r6"
+		}
+	case TripleMips64el:
+		if subArch2 == TripleMipsSubArch_r6 {
+			return "mipsisa64r6el"
+		}
+	case TripleAarch64:
+		if subArch2 == TripleAArch64SubArch_arm64ec {
+			return "arm64ec"
+		}
+		if subArch2 == TripleAArch64SubArch_arm64e {
+			return "arm64e"
+		}
+	case TripleDxil:
+		switch subArch2 {
+		case TripleNoSubArch, TripleDXILSubArch_v1_0:
+			return "dxilv1.0"
+		case TripleDXILSubArch_v1_1:
+			return "dxilv1.1"
+		case TripleDXILSubArch_v1_2:
+			return "dxilv1.2"
+		case TripleDXILSubArch_v1_3:
+			return "dxilv1.3"
+		case TripleDXILSubArch_v1_4:
+			return "dxilv1.4"
+		case TripleDXILSubArch_v1_5:
+			return "dxilv1.5"
+		case TripleDXILSubArch_v1_6:
+			return "dxilv1.6"
+		case TripleDXILSubArch_v1_7:
+			return "dxilv1.7"
+		case TripleDXILSubArch_v1_8:
+			return "dxilv1.8"
+		}
+	}
+	return TripleArchTypeName(kind)
 }
 
 // Get the "prefix" canonical name for the kind architecture. This is the
@@ -1318,35 +1574,554 @@ func TripleArchName(kind TripleArchType, subArch *TripleSubArchType) string {
 //
 // return - The architecture prefix, or 0 if none is defined.
 func TripleArchTypePrefix(kind TripleArchType) string {
-	panic("not implemented")
+	switch kind {
+	default:
+		return ""
+	case TripleAarch64, TripleAarch64_be, TripleAarch64_32:
+		return "aarch64"
+	case TripleArc:
+		return "arc"
+	case TripleArm, TripleArmeb, TripleThumb, TripleThumbeb:
+		return "arm"
+	case TripleAvr:
+		return "avr"
+	case TriplePpc64, TriplePpc64le, TriplePpc, TriplePpcle:
+		return "ppc"
+	case TripleM68k:
+		return "m68k"
+	case TripleMips, TripleMipsel, TripleMips64, TripleMips64el:
+		return "mips"
+	case TripleHexagon:
+		return "hexagon"
+	case TripleAmdgcn:
+		return "amdgcn"
+	case TripleR600:
+		return "r600"
+	case TripleBpfel, TripleBpfeb:
+		return "bpf"
+	case TripleSparcv9, TripleSparcel, TripleSparc:
+		return "sparc"
+	case TripleSystemz:
+		return "s390"
+	case TripleX86, TripleX86_64:
+		return "x86"
+	case TripleNvptx:
+		return "nvvm"
+	case TripleNvptx64:
+		return "nvvm"
+	case TripleLe32:
+		return "le32"
+	case TripleLe64:
+		return "le64"
+	case TripleAmdil, TripleAmdil64:
+		return "amdil"
+	case TripleHsail, TripleHsail64:
+		return "hsail"
+	case TripleSpir, TripleSpir64:
+		return "spir"
+	case TripleSpirv, TripleSpirv32, TripleSpirv64:
+		return "spv"
+	case TripleKalimba:
+		return "kalimba"
+	case TripleLanai:
+		return "lanai"
+	case TripleShave:
+		return "shave"
+	case TripleWasm32, TripleWasm64:
+		return "wasm"
+	case TripleRiscv32, TripleRiscv64:
+		return "riscv"
+	case TripleVe:
+		return "ve"
+	case TripleCsky:
+		return "csky"
+	case TripleLoongarch32, TripleLoongarch64:
+		return "loongarch"
+	case TripleDxil:
+		return "dxil"
+	case TripleXtensa:
+		return "xtensa"
+	}
 }
 
 // Get the canonical name for the kind vendor.
 func TripleVendorTypeName(kind TripleVendorType) string {
-	panic("not implemented")
+	switch kind {
+	case TripleUnknownVendor:
+		return "unknown"
+	case TripleAMD:
+		return "amd"
+	case TripleApple:
+		return "apple"
+	case TripleCSR:
+		return "csr"
+	case TripleFreescale:
+		return "fsl"
+	case TripleIBM:
+		return "ibm"
+	case TripleImaginationTechnologies:
+		return "img"
+	case TripleMesa:
+		return "mesa"
+	case TripleMipsTechnologies:
+		return "mti"
+	case TripleNVIDIA:
+		return "nvidia"
+	case TripleOpenEmbedded:
+		return "oe"
+	case TriplePC:
+		return "pc"
+	case TripleSCEI:
+		return "scei"
+	case TripleSUSE:
+		return "suse"
+	}
+	panic("unreachable: invalid TripleVendorType")
 }
 
 // Get the canonical name for the kind operating system.
 func TripleOSTypeName(kind TripleOSType) string {
-	panic("not implemented")
+	switch kind {
+	case TripleUnknownOS:
+		return "unknown"
+	case TripleAIX:
+		return "aix"
+	case TripleAMDHSA:
+		return "amdhsa"
+	case TripleAMDPAL:
+		return "amdpal"
+	case TripleBridgeOS:
+		return "bridgeos"
+	case TripleCUDA:
+		return "cuda"
+	case TripleDarwin:
+		return "darwin"
+	case TripleDragonFly:
+		return "dragonfly"
+	case TripleDriverKit:
+		return "driverkit"
+	case TripleELFIAMCU:
+		return "elfiamcu"
+	case TripleEmscripten:
+		return "emscripten"
+	case TripleFreeBSD:
+		return "freebsd"
+	case TripleFuchsia:
+		return "fuchsia"
+	case TripleHaiku:
+		return "haiku"
+	case TripleHermitCore:
+		return "hermit"
+	case TripleHurd:
+		return "hurd"
+	case TripleIOS:
+		return "ios"
+	case TripleKFreeBSD:
+		return "kfreebsd"
+	case TripleLinux:
+		return "linux"
+	case TripleLv2:
+		return "lv2"
+	case TripleMacOSX:
+		return "macosx"
+	case TripleMesa3D:
+		return "mesa3d"
+	case TripleNVCL:
+		return "nvcl"
+	case TripleNaCl:
+		return "nacl"
+	case TripleNetBSD:
+		return "netbsd"
+	case TripleOpenBSD:
+		return "openbsd"
+	case TriplePS4:
+		return "ps4"
+	case TriplePS5:
+		return "ps5"
+	case TripleRTEMS:
+		return "rtems"
+	case TripleSolaris:
+		return "solaris"
+	case TripleSerenity:
+		return "serenity"
+	case TripleTvOS:
+		return "tvos"
+	case TripleUEFI:
+		return "uefi"
+	case TripleWASI:
+		return "wasi"
+	case TripleWatchOS:
+		return "watchos"
+	case TripleWin32:
+		return "windows"
+	case TripleZOS:
+		return "zos"
+	case TripleShaderModel:
+		return "shadermodel"
+	case TripleLiteOS:
+		return "liteos"
+	case TripleXROS:
+		return "xros"
+	case TripleVulkan:
+		return "vulkan"
+	}
+	panic("unreachable: invalid TripleOSType")
 }
 
 // Get the canonical name for the kind environment.
 func TripleEnvironmentTypeName(kind TripleEnvironmentType) string {
-	panic("not implemented")
+	switch kind {
+	case TripleUnknownEnvironment:
+		return "unknown"
+	case TripleAndroid:
+		return "android"
+	case TripleCODE16:
+		return "code16"
+	case TripleCoreCLR:
+		return "coreclr"
+	case TripleCygnus:
+		return "cygnus"
+	case TripleEABI:
+		return "eabi"
+	case TripleEABIHF:
+		return "eabihf"
+	case TripleGNU:
+		return "gnu"
+	case TripleGNUT64:
+		return "gnut64"
+	case TripleGNUABI64:
+		return "gnuabi64"
+	case TripleGNUABIN32:
+		return "gnuabin32"
+	case TripleGNUEABI:
+		return "gnueabi"
+	case TripleGNUEABIT64:
+		return "gnueabit64"
+	case TripleGNUEABIHF:
+		return "gnueabihf"
+	case TripleGNUEABIHFT64:
+		return "gnueabihft64"
+	case TripleGNUF32:
+		return "gnuf32"
+	case TripleGNUF64:
+		return "gnuf64"
+	case TripleGNUSF:
+		return "gnusf"
+	case TripleGNUX32:
+		return "gnux32"
+	case TripleGNUILP32:
+		return "gnu_ilp32"
+	case TripleItanium:
+		return "itanium"
+	case TripleMSVC:
+		return "msvc"
+	case TripleMacABI:
+		return "macabi"
+	case TripleMusl:
+		return "musl"
+	case TripleMuslEABI:
+		return "musleabi"
+	case TripleMuslEABIHF:
+		return "musleabihf"
+	case TripleMuslX32:
+		return "muslx32"
+	case TripleSimulator:
+		return "simulator"
+	case TriplePixel:
+		return "pixel"
+	case TripleVertex:
+		return "vertex"
+	case TripleGeometry:
+		return "geometry"
+	case TripleHull:
+		return "hull"
+	case TripleDomain:
+		return "domain"
+	case TripleCompute:
+		return "compute"
+	case TripleLibrary:
+		return "library"
+	case TripleRayGeneration:
+		return "raygeneration"
+	case TripleIntersection:
+		return "intersection"
+	case TripleAnyHit:
+		return "anyhit"
+	case TripleClosestHit:
+		return "closesthit"
+	case TripleMiss:
+		return "miss"
+	case TripleCallable:
+		return "callable"
+	case TripleMesh:
+		return "mesh"
+	case TripleAmplification:
+		return "amplification"
+	case TripleOpenCL:
+		return "opencl"
+	case TripleOpenHOS:
+		return "ohos"
+	case TriplePAuthTest:
+		return "pauthtest"
+	}
+	panic("unreachable: invalid TripleEnvironmentType")
 }
 
 // Get the name for the object format.
 func TripleObjectFormatTypeName(kind TripleObjectFormatType) string {
-	panic("not implemented")
+	switch (kind) {
+	case TripleUnknownObjectFormat: return "";
+	case TripleCOFF: return "coff";
+	case TripleELF: return "elf";
+	case TripleGOFF: return "goff";
+	case TripleMachO: return "macho";
+	case TripleWasm: return "wasm";
+	case TripleXCOFF: return "xcoff";
+	case TripleDXContainer: return "dxcontainer";
+	case TripleSPIRV: return "spirv";
+	}
+	panic("unreachable: invalid TripleObjectFormatType")
 }
 
 // The canonical type for the given LLVM architecture name (e.g., "x86").
 func TripleArchTypeForLLVMName(str string) TripleArchType {
-	panic("not implemented")
+	bpfArch := parseBPFArch(str)
+	if str == "aarch64" {
+		return TripleAarch64
+	} else if str == "aarch64_be" {
+		return TripleAarch64_be
+	} else if str == "aarch64_32" {
+		return TripleAarch64_32
+	} else if str == "arc" {
+		return TripleArc
+	} else if str == "arm64" { // "arm64" is an alias for "aarch64"
+		return TripleAarch64
+	} else if str == "arm64_32" {
+		return TripleAarch64_32
+	} else if str == "arm" {
+		return TripleArm
+	} else if str == "armeb" {
+		return TripleArmeb
+	} else if str == "avr" {
+		return TripleAvr
+	} else if strings.HasPrefix(str, "bpf") {
+		return bpfArch
+	} else if str == "m68k" {
+		return TripleM68k
+	} else if str == "mips" {
+		return TripleMips
+	} else if str == "mipsel" {
+		return TripleMipsel
+	} else if str == "mips64" {
+		return TripleMips64
+	} else if str == "mips64el" {
+		return TripleMips64el
+	} else if str == "msp430" {
+		return TripleMsp430
+	} else if str == "ppc64" {
+		return TriplePpc64
+	} else if str == "ppc32" {
+		return TriplePpc
+	} else if str == "ppc" {
+		return TriplePpc
+	} else if str == "ppc32le" {
+		return TriplePpcle
+	} else if str == "ppcle" {
+		return TriplePpcle
+	} else if str == "ppc64le" {
+		return TriplePpc64le
+	} else if str == "r600" {
+		return TripleR600
+	} else if str == "amdgcn" {
+		return TripleAmdgcn
+	} else if str == "riscv32" {
+		return TripleRiscv32
+	} else if str == "riscv64" {
+		return TripleRiscv64
+	} else if str == "hexagon" {
+		return TripleHexagon
+	} else if str == "sparc" {
+		return TripleSparc
+	} else if str == "sparcel" {
+		return TripleSparcel
+	} else if str == "sparcv9" {
+		return TripleSparcv9
+	} else if str == "s390x" {
+		return TripleSystemz
+	} else if str == "systemz" {
+		return TripleSystemz
+	} else if str == "tce" {
+		return TripleTce
+	} else if str == "tcele" {
+		return TripleTcele
+	} else if str == "thumb" {
+		return TripleThumb
+	} else if str == "thumbeb" {
+		return TripleThumbeb
+	} else if str == "x86" {
+		return TripleX86
+	} else if str == "i386" {
+		return TripleX86
+	} else if str == "x86-64" {
+		return TripleX86_64
+	} else if str == "xcore" {
+		return TripleXcore
+	} else if str == "nvptx" {
+		return TripleNvptx
+	} else if str == "nvptx64" {
+		return TripleNvptx64
+	} else if str == "le32" {
+		return TripleLe32
+	} else if str == "le64" {
+		return TripleLe64
+	} else if str == "amdil" {
+		return TripleAmdil
+	} else if str == "amdil64" {
+		return TripleAmdil64
+	} else if str == "hsail" {
+		return TripleHsail
+	} else if str == "hsail64" {
+		return TripleHsail64
+	} else if str == "spir" {
+		return TripleSpir
+	} else if str == "spir64" {
+		return TripleSpir64
+	} else if str == "spirv" {
+		return TripleSpirv
+	} else if str == "spirv32" {
+		return TripleSpirv32
+	} else if str == "spirv64" {
+		return TripleSpirv64
+	} else if str == "kalimba" {
+		return TripleKalimba
+	} else if str == "lanai" {
+		return TripleLanai
+	} else if str == "shave" {
+		return TripleShave
+	} else if str == "wasm32" {
+		return TripleWasm32
+	} else if str == "wasm64" {
+		return TripleWasm64
+	} else if str == "renderscript32" {
+		return TripleRenderscript32
+	} else if str == "renderscript64" {
+		return TripleRenderscript64
+	} else if str == "ve" {
+		return TripleVe
+	} else if str == "csky" {
+		return TripleCsky
+	} else if str == "loongarch32" {
+		return TripleLoongarch32
+	} else if str == "loongarch64" {
+		return TripleLoongarch64
+	} else if str == "dxil" {
+		return TripleDxil
+	} else if str == "xtensa" {
+		return TripleXtensa
+	} else {
+		return TripleUnknownArch
+	}
 }
 
 // Returns a canonicalized OS version number for the specified OS.
 func TripleCanonicalVersionForOS(os TripleOSType, version support.VersionTuple) support.VersionTuple {
 	panic("not implemented")
 }
+
+func parseBPFArch(archName string) TripleArchType {
+	if archName == "bpf" {
+		if cpu.IsBigEndian {
+			return TripleBpfeb
+		} else {
+			return TripleBpfel
+		}
+	} else if archName == "bpf_be" || archName == "bpfeb" {
+		return TripleBpfeb
+	} else if archName == "bpf_le" || archName == "bpfel" {
+		return TripleBpfel
+	} else {
+		return TripleUnknownArch
+	}
+}
+
+func parseARMArch(archName string) TripleArchType {
+	isa := ARMParseArchISA(archName)
+	endian := ARMParseArchEndian(archName)
+
+	arch := TripleUnknownArch
+	switch endian {
+	case ARMEndianKindLITTLE:
+		switch isa {
+		case ARMISAKindARM:
+			arch = TripleArm
+		case ARMISAKindTHUMB:
+			arch = TripleThumb
+		case ARMISAKindAARCH64:
+			arch = TripleAarch64
+		}
+	case ARMEndianKindBIG:
+		switch isa {
+		case ARMISAKindARM:
+			arch = TripleArmeb
+		case ARMISAKindTHUMB:
+			arch = TripleThumbeb
+		case ARMISAKindAARCH64:
+			arch = TripleAarch64_be
+		}
+	}
+
+	archName = ARMGetCanonicalArchName(archName)
+	if archName == "" {
+		return TripleUnknownArch
+	}
+
+	// Thumb only exists in v4+
+	if isa == ARMISAKindTHUMB && (strings.HasPrefix(archName, "v2") || strings.HasPrefix(archName, "v3")) {
+		return TripleUnknownArch
+	}
+
+	// Thumb only for v6m
+	profile := ARMParseArchProfile(archName)
+	version := ARMParseArchVersion(archName)
+	if profile == ARMProfileKindM && version == 6 {
+		if endian == ARMEndianKindBIG {
+			return TripleThumbeb
+		} else {
+			return TripleThumb
+		}
+	}
+
+	return arch
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
